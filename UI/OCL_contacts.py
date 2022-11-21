@@ -1,7 +1,9 @@
 import sys
 import socket
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt #,  QObject, Signal
+from PySide6 import QtCore
 from PySide6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery
 from PySide6.QtWidgets import (
     QWidget,
@@ -16,6 +18,17 @@ from PySide6.QtWidgets import (
     QTableView,
     QHeaderView,
 )
+
+class fonaTask(QtCore.QObject):
+    finished = QtCore.Signal()
+    trigg = QtCore.Signal(bool)
+
+    def run(self):
+        while True:
+            self.trigg.emit(True)
+            print('Trigger from Fona thread')
+            time.sleep(30) 
+        self.finished.emit()
 
 #class Contacts(QMainWindow):
 class Contacts(QWidget):
@@ -70,7 +83,7 @@ class Contacts(QWidget):
         self.updateEmergencyPhoneList(False)
         self.UDP_IP = "192.168.1.56"
         self.UDP_PORT = 8888
-
+        self.updateFona()
 
     def updateEmergencyPhoneList(self, parse=False):
         phonelist = set()
@@ -91,6 +104,27 @@ class Contacts(QWidget):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.sendto(bytes(fona, "ascii"), (self.UDP_IP, self.UDP_PORT))
             sock.close()
+
+    def pushEmergencyPhoneList(self, parseToFona):
+        print('Its pushing UDP')
+        self.updateEmergencyPhoneList(parseToFona)
+        fona = ','.join(self.emergency_phones)
+        numphones = '{:02d}'.format(len(self.emergency_phones))
+        fona = f'!{fona},N{numphones}'
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(bytes(fona, "ascii"), (self.UDP_IP, self.UDP_PORT))
+        sock.close()
+
+    def updateFona(self):
+        self.thread0 = QtCore.QThread()
+        self.fona_task = fonaTask()
+        self.fona_task.moveToThread(self.thread0)
+        self.thread0.started.connect(self.fona_task.run)
+        self.fona_task.finished.connect(self.thread0.quit)
+        self.fona_task.finished.connect(self.fona_task.deleteLater)
+        self.thread0.finished.connect(self.thread0.deleteLater)
+        self.fona_task.trigg.connect(self.pushEmergencyPhoneList)
+        self.thread0.start()
 
     def addcontact(self):
         query = QSqlQuery() ## instead of exec sql raw queries, can use QsqlRecord
